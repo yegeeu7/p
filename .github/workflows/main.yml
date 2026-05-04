@@ -1,0 +1,67 @@
+name: Simple Cloudflared RDP Tunnel V2
+
+on: 
+  workflow_dispatch
+
+jobs:
+  rdp-access:
+    runs-on: windows-latest
+    steps:
+      - name: Download Cloudflared
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe" -OutFile "$env:USERPROFILE\cloudflared.exe"
+
+      - name: Enable RDP
+        run: |
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+
+      - name: Set Simple RDP Credentials
+        run: |
+          $user = "V"
+          $password = "Root123"
+          
+          $securePassword = ConvertTo-SecureString $password -AsPlainText -Force
+          
+          if (-not (Get-LocalUser -Name $user -ErrorAction SilentlyContinue)) {
+              New-LocalUser -Name $user -Password $securePassword
+          } else {
+              Set-LocalUser -Name $user -Password $securePassword
+          }
+          
+          Add-LocalGroupMember -Group "Administrators" -Member $user
+
+      - name: Setup Cloudflared
+        run: |
+          New-Item -ItemType Directory -Path "$env:USERPROFILE\.cloudflared" -Force
+          
+      - name: Save Tunnel Credentials
+        env:
+          TCP_CREDENTIALS: ${{ secrets.TCP_CREDENTIALS }}
+        run: |
+          $Env:TCP_CREDENTIALS | Out-File "$env:USERPROFILE\.cloudflared\tcp_tunnel.json"
+
+      - name: Run Tunnel (Silent)
+        run: |
+          # Jalankan cloudflared secara silent
+          $psi = New-Object System.Diagnostics.ProcessStartInfo
+          $psi.FileName = "$env:USERPROFILE\cloudflared.exe"
+          $psi.Arguments = "tunnel --credentials-file `"$env:USERPROFILE\.cloudflared\tcp_tunnel.json`" run tcp"
+          $psi.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
+          $psi.CreateNoWindow = $true
+          $psi.UseShellExecute = $false
+          $psi.RedirectStandardOutput = $true
+          $psi.RedirectStandardError = $true
+          
+          $process = [System.Diagnostics.Process]::Start($psi)
+          
+          # Hanya tampilkan pesan sederhana
+          Write-Host "===================================="
+          Write-Host "🖥️ RDP BERHASIL DIBUAT!"
+          Write-Host "🚀 RDP Status Aktif"
+          Write-Host "User: V"
+          Write-Host "Password: Root123"
+          Write-Host "===================================="
+          
+          # Biarkan tunnel tetap berjalan tanpa output
+          while ($true) { Start-Sleep -Seconds 60 }
